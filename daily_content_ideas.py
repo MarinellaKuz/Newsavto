@@ -2,40 +2,48 @@ import asyncio, os, httpx
 from datetime import datetime
 from openai import AsyncOpenAI
 
-async def search_trends(query):
+async def search_news(query):
     async with httpx.AsyncClient() as client:
         response = await client.get(
             "https://html.duckduckgo.com/html/",
-            params={"q": query, "df": "d"},
+            params={"q": query},
             headers={"User-Agent": "Mozilla/5.0"},
             timeout=30
         )
         return response.text[:10000]
 
 async def main():
-    trends = await search_trends("тренды reels недвижимость риелтор контент 2024")
+    trends = await search_news("риелтор блог инстаграм reels идеи недвижимость ипотека СПб")
+    news = await search_news("ипотека новости Санкт-Петербург недвижимость цены")
     
     client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     today = datetime.now().strftime("%d.%m.%Y")
+    weekday = ["Понедельник","Вторник","Среда","Четверг","Пятница","Суббота","Воскресенье"][datetime.now().weekday()]
     
-    prompt = f"""Сегодня {today}. На основе трендов придумай 5 идей для контента риелтора СПб.
+    prompt = f"""Ты SMM-эксперт для риелтора из СПб. Сегодня {weekday}, {today}.
 
-Тренды из поиска:
-{trends}
+Актуальный контекст из поиска:
+{trends[:8000]}
+{news[:8000]}
+
+Придумай 5 КОНКРЕТНЫХ идей для контента:
 
 Для каждой идеи:
-📱 Формат (Reels/пост/Stories)
-🎯 Тема
-📝 Что показать (2-3 предложения)
-🔥 Почему зайдёт сейчас
+📱 **Формат:** Reels 30сек / Карусель / Stories
+🎯 **Тема:** конкретная (не "про ипотеку", а "Почему в июле выгодно брать ипотеку")
+📝 **Сценарий:** что говорить/показывать (3-4 предложения)
+🎬 **Хук:** первая фраза чтобы зацепить
 
-Учитывай актуальные темы: ипотека, цены, лайфхаки покупателям.
+Темы должны быть:
+- Привязаны к текущим новостям (ставки, цены, законы)
+- Полезны покупателям/продавцам
+- Не занудные, живые
 
-Начни "💡 Идеи для контента на сегодня:"
-Закончи "Выбери одну и сделай! ✨"
+Начни: "💡 Идеи на {weekday}:"
+Закончи: "Выбери одну и снимай! 🎬"
 """
 
-    response = await client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], max_tokens=2000)
+    response = await client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], max_tokens=2500)
     
     async with httpx.AsyncClient() as http:
         await http.post(f"https://api.telegram.org/bot{os.getenv('BOT_TOKEN')}/sendMessage", 
@@ -43,3 +51,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+    
