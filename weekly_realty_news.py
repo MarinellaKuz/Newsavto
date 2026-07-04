@@ -1,42 +1,57 @@
 import asyncio, os, httpx
+from datetime import datetime
 from openai import AsyncOpenAI
 
 async def search_news(query):
     async with httpx.AsyncClient() as client:
         response = await client.get(
             "https://html.duckduckgo.com/html/",
-            params={"q": query, "df": "w"},
+            params={"q": query},
             headers={"User-Agent": "Mozilla/5.0"},
             timeout=30
         )
-        return response.text[:15000]
+        return response.text[:12000]
 
 async def main():
-    searches = [
-        "ипотека ставки ЦБ РФ 2024",
-        "недвижимость Санкт-Петербург цены новости",
-        "льготная ипотека семейная IT новости"
+    queries = [
+        "ключевая ставка ЦБ ипотека июль 2024",
+        "льготная ипотека семейная IT изменения",
+        "недвижимость Санкт-Петербург цены июль 2024",
+        "Сбербанк ВТБ ипотека ставки условия"
     ]
     
     all_results = ""
-    for q in searches:
+    for q in queries:
         all_results += await search_news(q) + "\n\n"
     
     client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    prompt = f"""На основе этих результатов поиска составь еженедельный дайджест по недвижимости СПб.
+    today = datetime.now().strftime("%d.%m.%Y")
+    
+    prompt = f"""Сегодня {today}. На основе поиска составь ДАЙДЖЕСТ для риелтора СПб.
 
-Результаты поиска:
-{all_results[:20000]}
+Данные из поиска:
+{all_results[:30000]}
 
-Включи разделы:
-1. 📊 ИПОТЕКА — ставки, изменения, льготные программы
-2. 🏠 РЫНОК СПБ — цены, динамика, тренды
-3. 📰 ГЛАВНЫЕ НОВОСТИ — 3-5 важных новостей недели
-4. 💬 О ЧЁМ ГОВОРИТЬ С КЛИЕНТАМИ — актуальные темы
+Напиши ТОЛЬКО то, что нашёл в поиске (не выдумывай цифры):
 
-Начни с "🏠 Дайджест недвижимости:"
-Закончи "Успешной недели! 💪"
-Пиши конкретно, с цифрами."""
+📊 **ИПОТЕКА**
+- Ключевая ставка ЦБ (если есть)
+- Ставки банков (Сбер, ВТБ, Альфа)
+- Изменения в льготных программах
+
+🏠 **РЫНОК СПБ**
+- Цены (если есть данные)
+- Что происходит на рынке
+
+📰 **НОВОСТИ НЕДЕЛИ**
+- 3-5 конкретных новостей с датами
+
+💬 **ДЛЯ РАЗГОВОРА С КЛИЕНТАМИ**
+- 2-3 актуальные темы
+
+Начни: "🏠 Дайджест недвижимости на {today}:"
+Если данных мало — честно напиши что нашёл.
+НЕ ВЫДУМЫВАЙ цифры и факты!"""
 
     response = await client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], max_tokens=3000)
     
@@ -48,3 +63,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+    
