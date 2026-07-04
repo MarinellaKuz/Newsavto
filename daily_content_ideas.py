@@ -1,46 +1,60 @@
 import asyncio, os, httpx
 from datetime import datetime
 from openai import AsyncOpenAI
+import xml.etree.ElementTree as ET
 
-async def search_news(query):
+async def get_rss(url):
     async with httpx.AsyncClient() as client:
-        response = await client.get(
-            "https://html.duckduckgo.com/html/",
-            params={"q": query},
-            headers={"User-Agent": "Mozilla/5.0"},
-            timeout=30
-        )
-        return response.text[:10000]
+        try:
+            r = await client.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+            return r.text
+        except:
+            return ""
+
+async def parse_rss(xml_text):
+    items = []
+    try:
+        root = ET.fromstring(xml_text)
+        for item in root.findall(".//item")[:5]:
+            title = item.find("title")
+            items.append(title.text if title is not None else "")
+    except:
+        pass
+    return items
 
 async def main():
-    trends = await search_news("риелтор блог инстаграм reels идеи недвижимость ипотека СПб")
-    news = await search_news("ипотека новости Санкт-Петербург недвижимость цены")
+    feeds = [
+        "https://realty.rbc.ru/rss/",
+        "https://www.fontanka.ru/realty.rss"
+    ]
+    
+    news = []
+    for url in feeds:
+        xml = await get_rss(url)
+        items = await parse_rss(xml)
+        news.extend(items)
+    
+    news_text = "\n".join([f"• {n}" for n in news[:10]])
     
     client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     today = datetime.now().strftime("%d.%m.%Y")
     weekday = ["Понедельник","Вторник","Среда","Четверг","Пятница","Суббота","Воскресенье"][datetime.now().weekday()]
     
-    prompt = f"""Ты SMM-эксперт для риелтора из СПб. Сегодня {weekday}, {today}.
+    prompt = f"""Ты SMM для риелтора СПб. Сегодня {weekday}, {today}.
 
-Актуальный контекст из поиска:
-{trends[:8000]}
-{news[:8000]}
+Свежие новости недвижимости:
+{news_text}
 
-Придумай 5 КОНКРЕТНЫХ идей для контента:
+Придумай 5 идей для Reels/постов, ПРИВЯЗАННЫХ к этим новостям:
 
-Для каждой идеи:
-📱 **Формат:** Reels 30сек / Карусель / Stories
-🎯 **Тема:** конкретная (не "про ипотеку", а "Почему в июле выгодно брать ипотеку")
-📝 **Сценарий:** что говорить/показывать (3-4 предложения)
-🎬 **Хук:** первая фраза чтобы зацепить
+Для каждой:
+📱 **Формат:** Reels 30сек / Карусель
+🎯 **Тема:** конкретная, привязанная к новости
+🎬 **Хук:** первые 3 секунды (цепляющая фраза)
+📝 **Сценарий:** что говорить (4-5 пунктов)
 
-Темы должны быть:
-- Привязаны к текущим новостям (ставки, цены, законы)
-- Полезны покупателям/продавцам
-- Не занудные, живые
-
-Начни: "💡 Идеи на {weekday}:"
-Закончи: "Выбери одну и снимай! 🎬"
+Начни: "💡 Идеи на {weekday}, {today}:"
+Закончи: "Выбери и снимай! 🎬"
 """
 
     response = await client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], max_tokens=2500)
