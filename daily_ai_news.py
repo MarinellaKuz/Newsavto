@@ -1,77 +1,41 @@
-#!/usr/bin/env python3
-import asyncio
-import os
-import sys
-from datetime import datetime
-
-import httpx
+import asyncio, os, httpx
 from openai import AsyncOpenAI
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-CHAT_ID = os.getenv("CHAT_ID")
-
-
-async def get_ai_news() -> str:
-    client = AsyncOpenAI(api_key=OPENAI_API_KEY)
-    today = datetime.now().strftime("%d.%m.%Y")
-    
-    prompt = f"""Ты — AI-аналитик, эксперт по новостям искусственного интеллекта.
-
-Сегодня {today}. Составь "Топ-10 новостей ИИ" — самые важные и интересные события.
-
-Для каждой новости:
-1. 📌 **Заголовок**
-2. 💡 **Суть** — что произошло (2-3 предложения)
-3. 🎯 **Почему важно** — влияние на индустрию (1 предложение)
-
-Фокусируйся на:
-- Новые модели (OpenAI, Anthropic, Google, Meta, Mistral, xAI)
-- Прорывы в исследованиях
-- Бизнес-новости (инвестиции, сделки)
-- Новые инструменты и приложения
-
-Формат: красивый текст для Telegram с эмодзи.
-Начни: "🤖 Доброе утро! Топ-10 новостей ИИ:"
-Закончи: "Хорошего дня! 🚀"
-"""
-    
-    response = await client.chat.completions.create(
-        model="gpt-4o",
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=2500,
-        temperature=0.7,
-    )
-    return response.choices[0].message.content.strip()
-
-
-async def send_telegram(text: str) -> bool:
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+async def search_news(query):
     async with httpx.AsyncClient() as client:
-        max_len = 4000
-        messages = [text[i:i+max_len] for i in range(0, len(text), max_len)]
-        for msg in messages:
-            try:
-                response = await client.post(url, json={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"})
-                if not response.is_success:
-                    await client.post(url, json={"chat_id": CHAT_ID, "text": msg})
-            except Exception as e:
-                print(f"Ошибка: {e}")
-                return False
-    return True
-
+        response = await client.get(
+            "https://html.duckduckgo.com/html/",
+            params={"q": query, "df": "d"},
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=30
+        )
+        return response.text[:15000]
 
 async def main():
-    print(f"🚀 Запуск: Новости ИИ — {datetime.now()}")
-    if not all([BOT_TOKEN, OPENAI_API_KEY, CHAT_ID]):
-        print("❌ Не заданы переменные!")
-        sys.exit(1)
-    news = await get_ai_news()
-    print("✅ Новости сгенерированы")
-    if await send_telegram(news):
-        print("✅ Отправлено!")
-    else:
-        sys.exit(1)
+    search_results = await search_news("AI artificial intelligence news today 2024")
+    
+    client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    prompt = f"""На основе этих результатов поиска составь Топ-10 свежих новостей из мира ИИ.
+
+Результаты поиска:
+{search_results}
+
+Для каждой новости укажи:
+1. 📌 Заголовок
+2. 💡 Суть (2-3 предложения)
+3. 🎯 Почему важно
+
+Начни с "🤖 Доброе утро! Топ-10 новостей ИИ:"
+Закончи "Хорошего дня! 🚀"
+Если новостей меньше 10 - напиши сколько нашёл."""
+
+    response = await client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], max_tokens=3000)
+    
+    async with httpx.AsyncClient() as http:
+        text = response.choices[0].message.content
+        for i in range(0, len(text), 4000):
+            await http.post(f"https://api.telegram.org/bot{os.getenv('BOT_TOKEN')}/sendMessage", 
+                          json={"chat_id": os.getenv("CHAT_ID"), "text": text[i:i+4000]})
 
 if __name__ == "__main__":
     asyncio.run(main())
