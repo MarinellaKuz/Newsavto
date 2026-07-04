@@ -1,57 +1,68 @@
 import asyncio, os, httpx
 from datetime import datetime
 from openai import AsyncOpenAI
+import xml.etree.ElementTree as ET
 
-async def search_news(query):
+async def get_rss(url):
     async with httpx.AsyncClient() as client:
-        response = await client.get(
-            "https://html.duckduckgo.com/html/",
-            params={"q": query},
-            headers={"User-Agent": "Mozilla/5.0"},
-            timeout=30
-        )
-        return response.text[:12000]
+        try:
+            r = await client.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+            return r.text
+        except:
+            return ""
+
+async def parse_rss(xml_text):
+    items = []
+    try:
+        root = ET.fromstring(xml_text)
+        for item in root.findall(".//item")[:15]:
+            title = item.find("title")
+            desc = item.find("description")
+            date = item.find("pubDate")
+            items.append({
+                "title": title.text if title is not None else "",
+                "desc": desc.text[:300] if desc is not None and desc.text else "",
+                "date": date.text if date is not None else ""
+            })
+    except:
+        pass
+    return items
 
 async def main():
-    queries = [
-        "ключевая ставка ЦБ ипотека июль 2024",
-        "льготная ипотека семейная IT изменения",
-        "недвижимость Санкт-Петербург цены июль 2024",
-        "Сбербанк ВТБ ипотека ставки условия"
+    feeds = [
+        "https://realty.rbc.ru/rss/",
+        "https://www.fontanka.ru/realty.rss",
+        "https://www.vedomosti.ru/rss/rubric/realty"
     ]
     
-    all_results = ""
-    for q in queries:
-        all_results += await search_news(q) + "\n\n"
+    all_news = []
+    for url in feeds:
+        xml = await get_rss(url)
+        items = await parse_rss(xml)
+        all_news.extend(items)
+    
+    news_text = "\n".join([f"[{n['date']}] {n['title']}: {n['desc']}" for n in all_news[:25]])
     
     client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     today = datetime.now().strftime("%d.%m.%Y")
     
-    prompt = f"""Сегодня {today}. На основе поиска составь ДАЙДЖЕСТ для риелтора СПб.
+    prompt = f"""Сегодня {today}. Вот свежие новости недвижимости из RSS:
 
-Данные из поиска:
-{all_results[:30000]}
+{news_text}
 
-Напиши ТОЛЬКО то, что нашёл в поиске (не выдумывай цифры):
+Составь дайджест для риелтора СПб:
 
-📊 **ИПОТЕКА**
-- Ключевая ставка ЦБ (если есть)
-- Ставки банков (Сбер, ВТБ, Альфа)
-- Изменения в льготных программах
+📊 **ИПОТЕКА** — новости про ставки, программы, банки (из списка выше)
 
-🏠 **РЫНОК СПБ**
-- Цены (если есть данные)
-- Что происходит на рынке
+🏠 **РЫНОК** — что происходит с ценами, спросом (из списка)
 
-📰 **НОВОСТИ НЕДЕЛИ**
-- 3-5 конкретных новостей с датами
+📰 **ТОП-5 НОВОСТЕЙ НЕДЕЛИ** — самые важные из списка, с датами
 
-💬 **ДЛЯ РАЗГОВОРА С КЛИЕНТАМИ**
-- 2-3 актуальные темы
+💬 **О ЧЁМ ГОВОРИТЬ С КЛИЕНТАМИ** — 3 темы на основе новостей
 
-Начни: "🏠 Дайджест недвижимости на {today}:"
-Если данных мало — честно напиши что нашёл.
-НЕ ВЫДУМЫВАЙ цифры и факты!"""
+Начни: "🏠 Дайджест недвижимости {today}:"
+Закончи: "Успешной недели! 💪"
+Пиши ТОЛЬКО на основе новостей из списка!"""
 
     response = await client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], max_tokens=3000)
     
