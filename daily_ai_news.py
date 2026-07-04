@@ -1,43 +1,60 @@
 import asyncio, os, httpx
 from openai import AsyncOpenAI
+import xml.etree.ElementTree as ET
 
-async def search_news(query):
+async def get_rss(url):
     async with httpx.AsyncClient() as client:
-        response = await client.get(
-            "https://html.duckduckgo.com/html/",
-            params={"q": query},
-            headers={"User-Agent": "Mozilla/5.0"},
-            timeout=30
-        )
-        return response.text[:12000]
+        try:
+            r = await client.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+            return r.text
+        except:
+            return ""
+
+async def parse_rss(xml_text):
+    items = []
+    try:
+        root = ET.fromstring(xml_text)
+        for item in root.findall(".//item")[:10]:
+            title = item.find("title")
+            desc = item.find("description")
+            date = item.find("pubDate")
+            items.append({
+                "title": title.text if title is not None else "",
+                "desc": desc.text[:500] if desc is not None and desc.text else "",
+                "date": date.text if date is not None else ""
+            })
+    except:
+        pass
+    return items
 
 async def main():
-    queries = [
-        "OpenAI GPT Claude Anthropic новости сегодня",
-        "нейросети ИИ релиз обновление 2024",
-        "Midjourney Sora Google Gemini новости"
+    feeds = [
+        "https://habr.com/ru/rss/hub/artificial_intelligence/all/?fl=ru",
+        "https://openai.com/blog/rss.xml",
+        "https://techcrunch.com/category/artificial-intelligence/feed/"
     ]
     
-    all_results = ""
-    for q in queries:
-        all_results += await search_news(q) + "\n"
+    all_news = []
+    for url in feeds:
+        xml = await get_rss(url)
+        items = await parse_rss(xml)
+        all_news.extend(items)
+    
+    news_text = "\n".join([f"• {n['date']}: {n['title']} - {n['desc']}" for n in all_news[:20]])
     
     client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    prompt = f"""Из результатов поиска выбери ТОЛЬКО реальные свежие новости про ИИ.
+    prompt = f"""Вот свежие новости из RSS-лент про ИИ:
 
-{all_results[:25000]}
+{news_text}
 
-Напиши Топ-10 КОНКРЕТНЫХ новостей (не общие темы, а события):
-- Какая компания что выпустила/анонсировала
-- Какие обновления вышли
-- Какие сделки/инвестиции произошли
+Выбери 10 самых интересных и важных. Для каждой:
+📌 **Заголовок** (на русском)
+💡 **Суть** — что произошло (2 предложения)
+📅 **Дата** (если есть)
 
-Формат:
-📌 **Заголовок**
-💡 Что случилось (факты, даты, цифры)
-
-Начни: "🤖 Новости ИИ:"
-Если свежих новостей мало — напиши сколько нашёл, не выдумывай."""
+Начни: "🤖 Свежие новости ИИ:"
+Закончи: "Хорошего дня! 🚀"
+Пиши только реальные новости из списка!"""
 
     response = await client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], max_tokens=3000)
     
