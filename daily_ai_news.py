@@ -5,29 +5,39 @@ async def search_news(query):
     async with httpx.AsyncClient() as client:
         response = await client.get(
             "https://html.duckduckgo.com/html/",
-            params={"q": query, "df": "d"},
+            params={"q": query},
             headers={"User-Agent": "Mozilla/5.0"},
             timeout=30
         )
-        return response.text[:15000]
+        return response.text[:12000]
 
 async def main():
-    search_results = await search_news("AI artificial intelligence news today 2024")
+    queries = [
+        "OpenAI GPT Claude Anthropic новости сегодня",
+        "нейросети ИИ релиз обновление 2024",
+        "Midjourney Sora Google Gemini новости"
+    ]
+    
+    all_results = ""
+    for q in queries:
+        all_results += await search_news(q) + "\n"
     
     client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    prompt = f"""На основе этих результатов поиска составь Топ-10 свежих новостей из мира ИИ.
+    prompt = f"""Из результатов поиска выбери ТОЛЬКО реальные свежие новости про ИИ.
 
-Результаты поиска:
-{search_results}
+{all_results[:25000]}
 
-Для каждой новости укажи:
-1. 📌 Заголовок
-2. 💡 Суть (2-3 предложения)
-3. 🎯 Почему важно
+Напиши Топ-10 КОНКРЕТНЫХ новостей (не общие темы, а события):
+- Какая компания что выпустила/анонсировала
+- Какие обновления вышли
+- Какие сделки/инвестиции произошли
 
-Начни с "🤖 Доброе утро! Топ-10 новостей ИИ:"
-Закончи "Хорошего дня! 🚀"
-Если новостей меньше 10 - напиши сколько нашёл."""
+Формат:
+📌 **Заголовок**
+💡 Что случилось (факты, даты, цифры)
+
+Начни: "🤖 Новости ИИ:"
+Если свежих новостей мало — напиши сколько нашёл, не выдумывай."""
 
     response = await client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], max_tokens=3000)
     
